@@ -37,6 +37,7 @@ router.get('/youtube/search', authMiddleware, async (req, res) => {
       thumbnail: video.snippet.thumbnails.default.url,
     });
   } catch (error) {
+    console.error('YouTube Search Error:', error.response ? error.response.data : error.message);
     res.status(500).json({ error: 'Failed to search YouTube: ' + error.message });
   }
 });
