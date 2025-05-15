@@ -5,6 +5,8 @@ const Favorite = require('../models/favorite');
 const Downloaded = require('../models/downloaded');
 const Playlist = require('../models/playlist');
 const axios = require('axios');
+const NodeCache = require('node-cache');
+const cache = new NodeCache({ stdTTL: 3600 }); // Cache trong 1 giờ
 
 // Tìm kiếm video YouTube
 router.get('/youtube/search', authMiddleware, async (req, res) => {
@@ -37,6 +39,35 @@ router.get('/youtube/search', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to search YouTube: ' + error.message });
+  }
+});
+router.get('/youtube/getMp3', authMiddleware, mp3Limiter, async (req, res) => {
+  try {
+    const { videoId } = req.query;
+    if (!videoId) {
+      return res.status(400).json({ error: 'videoId is required' });
+    }
+
+    const cacheKey = `mp3_${videoId}`;
+    const cachedUrl = cache.get(cacheKey);
+    if (cachedUrl) {
+      return res.json({ url: cachedUrl });
+    }
+
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const info = await ytdl.getInfo(videoUrl);
+
+    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+    if (audioFormats.length === 0) {
+      return res.status(404).json({ error: 'No audio format found for this video' });
+    }
+
+    const audioUrl = audioFormats[0].url;
+    cache.set(cacheKey, audioUrl);
+    res.json({ url: audioUrl });
+  } catch (error) {
+    console.error('Error getting MP3 URL:', error);
+    res.status(500).json({ error: 'Failed to get MP3 URL: ' + error.message });
   }
 });
 
