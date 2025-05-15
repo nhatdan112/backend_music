@@ -41,6 +41,7 @@ router.get('/youtube/search', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to search YouTube: ' + error.message });
   }
 });
+
 router.get('/youtube/getMp3', authMiddleware, mp3Limiter, async (req, res) => {
   try {
     const { videoId } = req.query;
