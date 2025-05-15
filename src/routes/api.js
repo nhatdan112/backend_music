@@ -5,15 +5,6 @@ const Favorite = require('../models/favorite');
 const Downloaded = require('../models/downloaded');
 const Playlist = require('../models/playlist');
 const axios = require('axios');
-const ytdl = require('ytdl-core');
-const NodeCache = require('node-cache');
-const rateLimit = require('express-rate-limit');
-
-// Khởi tạo cache
-const cache = new NodeCache({ stdTTL: 3600 }); // Cache trong 1 giờ
-
-// Định nghĩa rate limiter
-
 
 // Tìm kiếm video YouTube
 router.get('/youtube/search', authMiddleware, async (req, res) => {
