@@ -5,7 +5,9 @@ const Favorite = require('../models/favorite');
 const Downloaded = require('../models/downloaded');
 const Playlist = require('../models/playlist');
 const axios = require('axios');
+const ytdl = require('ytdl-core');
 const NodeCache = require('node-cache');
+const rateLimit = require('express-rate-limit');
 const cache = new NodeCache({ stdTTL: 3600 }); // Cache trong 1 giờ
 
 // Tìm kiếm video YouTube
