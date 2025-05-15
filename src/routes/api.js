@@ -40,6 +40,7 @@ router.get('/youtube/search', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to search YouTube: ' + error.message });
   }
 });
+
 // Thêm bài hát vào danh sách yêu thích
 router.post('/favorites', authMiddleware, async (req, res) => {
   try {
