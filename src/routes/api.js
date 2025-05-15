@@ -7,16 +7,18 @@ const Playlist = require('../models/playlist');
 const axios = require('axios');
 const ytdl = require('ytdl-core');
 const NodeCache = require('node-cache');
-const rateLimit = require('express-rate-limit');// Cache trong 1 giờ
+const rateLimit = require('express-rate-limit');
 
+// Khởi tạo cache
 const cache = new NodeCache({ stdTTL: 3600 }); // Cache trong 1 giờ
 
-// Định nghĩa rate limiter cho /youtube/getMp3
+// Định nghĩa rate limiter
 const mp3Limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 phút
   max: 100, // Giới hạn 100 yêu cầu mỗi 15 phút
   message: 'Too many requests for MP3 URL, please try again later.',
 });
+
 // Tìm kiếm video YouTube
 router.get('/youtube/search', authMiddleware, async (req, res) => {
   try {
@@ -51,6 +53,7 @@ router.get('/youtube/search', authMiddleware, async (req, res) => {
   }
 });
 
+// Lấy MP3 URL từ video YouTube
 router.get('/youtube/getMp3', authMiddleware, mp3Limiter, async (req, res) => {
   try {
     const { videoId } = req.query;
@@ -65,6 +68,7 @@ router.get('/youtube/getMp3', authMiddleware, mp3Limiter, async (req, res) => {
     }
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    console.log(`Fetching info for video: ${videoUrl}`);
     const info = await ytdl.getInfo(videoUrl);
 
     const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
@@ -76,7 +80,12 @@ router.get('/youtube/getMp3', authMiddleware, mp3Limiter, async (req, res) => {
     cache.set(cacheKey, audioUrl);
     res.json({ url: audioUrl });
   } catch (error) {
-    console.error('Error getting MP3 URL:', error);
+    console.error('Error in /youtube/getMp3:', error.message, error.stack);
+    if (error.message.includes('timeout')) {
+      return res.status(504).json({ error: 'Request timed out' });
+    } else if (error.message.includes('unavailable')) {
+      return res.status(404).json({ error: 'Video unavailable' });
+    }
     res.status(500).json({ error: 'Failed to get MP3 URL: ' + error.message });
   }
 });
