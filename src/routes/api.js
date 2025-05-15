@@ -7,9 +7,16 @@ const Playlist = require('../models/playlist');
 const axios = require('axios');
 const ytdl = require('ytdl-core');
 const NodeCache = require('node-cache');
-const rateLimit = require('express-rate-limit');
+const rateLimit = require('express-rate-limit');// Cache trong 1 giờ
+
 const cache = new NodeCache({ stdTTL: 3600 }); // Cache trong 1 giờ
 
+// Định nghĩa rate limiter cho /youtube/getMp3
+const mp3Limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 phút
+  max: 100, // Giới hạn 100 yêu cầu mỗi 15 phút
+  message: 'Too many requests for MP3 URL, please try again later.',
+});
 // Tìm kiếm video YouTube
 router.get('/youtube/search', authMiddleware, async (req, res) => {
   try {
