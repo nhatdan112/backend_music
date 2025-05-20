@@ -6,48 +6,111 @@ const Downloaded = require('../models/downloaded');
 const Playlist = require('../models/playlist');
 const axios = require('axios');
 
-// Tìm kiếm video YouTube
-router.get('/youtube/search', authMiddleware, async (req, res) => {
+// Mô hình ánh xạ Spotify sang YouTube
+const Mapping = require('../models/mapping');
+
+// Tìm kiếm bài hát từ Spotify và ánh xạ sang YouTube
+router.get('/spotify/search', authMiddleware, async (req, res) => {
   try {
     const { query } = req.query;
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+    // Gọi Spotify API để tìm kiếm
+    const spotifyToken = await getSpotifyAccessToken();
+    const spotifyResponse = await axios.get('https://api.spotify.com/v1/search', {
       params: {
-        part: 'snippet',
         q: query,
-        type: 'video',
-        maxResults: 1,
-        key: process.env.YOUTUBE_API_KEY,
+        type: 'track',
+        limit: 10,
+        offset: 0,
       },
+      headers: { Authorization: `Bearer ${spotifyToken}` },
     });
 
-    const video = response.data.items[0];
-    if (!video) {
-      return res.status(404).json({ error: 'No video found' });
+    const tracks = spotifyResponse.data.tracks.items;
+    if (!tracks || tracks.length === 0) {
+      return res.status(404).json({ error: 'No tracks found' });
     }
 
-    res.json({
-      videoId: video.id.videoId,
-      title: video.snippet.title,
-      description: video.snippet.description,
-      thumbnail: video.snippet.thumbnails.default.url,
-    });
+    // Ánh xạ từng track sang YouTube video ID
+    const songs = await Promise.all(
+      tracks.map(async (track) => {
+        const trackId = track.id;
+        const searchQuery = `${track.name} ${track.artists.map((a) => a.name).join(' ')}`;
+        let youtubeVideoId = await getYouTubeVideoId(trackId, searchQuery);
+
+        // Nếu không tìm thấy ánh xạ, lưu mới vào cơ sở dữ liệu
+        if (!youtubeVideoId) {
+          const youtubeResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+            params: {
+              part: 'snippet',
+              q: searchQuery,
+              type: 'video',
+              maxResults: 1,
+              key: process.env.YOUTUBE_API_KEY,
+            },
+          });
+          const video = youtubeResponse.data.items[0];
+          if (video) {
+            youtubeVideoId = video.id.videoId;
+            await new Mapping({ spotify_track_id: trackId, youtube_video_id: youtubeVideoId }).save();
+          }
+        }
+
+        return {
+          id: youtubeVideoId || '',
+          title: track.name,
+          artist: track.artists.map((a) => a.name).join(', '),
+          album: track.album.name,
+          imageUrl: track.album.images[0]?.url || '',
+          thumbnail: track.album.images[2]?.url || '',
+        };
+      }),
+    );
+
+    res.json(songs);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to search YouTube: ' + error.message });
+    console.error('Error in /spotify/search:', error);
+    res.status(500).json({ error: 'Failed to search Spotify: ' + error.message });
   }
 });
+
+// Lấy access token của Spotify (Client Credentials Flow)
+async function getSpotifyAccessToken() {
+  const credentials = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64');
+  const response = await axios.post(
+    'https://accounts.spotify.com/api/token',
+    'grant_type=client_credentials',
+    {
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    },
+  );
+  return response.data.access_token;
+}
+
+// Lấy YouTube video ID từ cơ sở dữ liệu ánh xạ
+async function getYouTubeVideoId(spotifyTrackId, query) {
+  const mapping = await Mapping.findOne({ spotify_track_id: spotifyTrackId });
+  return mapping ? mapping.youtube_video_id : null;
+}
 
 // Thêm bài hát vào danh sách yêu thích
 router.post('/favorites', authMiddleware, async (req, res) => {
   try {
     const { song } = req.body;
+    if (!song || !song.id) {
+      return res.status(400).json({ error: 'Song data or ID is required' });
+    }
     const favorite = new Favorite({ userId: req.user.userId, song });
     await favorite.save();
     res.status(201).json(favorite);
   } catch (error) {
+    console.error('Error in /favorites:', error);
     res.status(500).json({ error: 'Failed to save favorite' });
   }
 });
@@ -58,6 +121,7 @@ router.get('/favorites', authMiddleware, async (req, res) => {
     const favorites = await Favorite.find({ userId: req.user.userId });
     res.json(favorites);
   } catch (error) {
+    console.error('Error in /favorites:', error);
     res.status(500).json({ error: 'Failed to fetch favorites' });
   }
 });
@@ -66,10 +130,14 @@ router.get('/favorites', authMiddleware, async (req, res) => {
 router.post('/downloaded', authMiddleware, async (req, res) => {
   try {
     const { fileName, song } = req.body;
+    if (!fileName || !song || !song.id) {
+      return res.status(400).json({ error: 'File name and song data are required' });
+    }
     const downloaded = new Downloaded({ userId: req.user.userId, fileName, song });
     await downloaded.save();
     res.status(201).json(downloaded);
   } catch (error) {
+    console.error('Error in /downloaded:', error);
     res.status(500).json({ error: 'Failed to save downloaded song' });
   }
 });
@@ -80,6 +148,7 @@ router.get('/downloaded', authMiddleware, async (req, res) => {
     const downloaded = await Downloaded.find({ userId: req.user.userId });
     res.json(downloaded);
   } catch (error) {
+    console.error('Error in /downloaded:', error);
     res.status(500).json({ error: 'Failed to fetch downloaded songs' });
   }
 });
@@ -87,9 +156,13 @@ router.get('/downloaded', authMiddleware, async (req, res) => {
 // Xóa bài hát khỏi danh sách yêu thích
 router.delete('/favorites/:id', authMiddleware, async (req, res) => {
   try {
-    await Favorite.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+    const favorite = await Favorite.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+    if (!favorite) {
+      return res.status(404).json({ error: 'Favorite not found' });
+    }
     res.json({ message: 'Favorite deleted' });
   } catch (error) {
+    console.error('Error in /favorites/:id:', error);
     res.status(500).json({ error: 'Failed to delete favorite' });
   }
 });
@@ -98,10 +171,14 @@ router.delete('/favorites/:id', authMiddleware, async (req, res) => {
 router.post('/playlists', authMiddleware, async (req, res) => {
   try {
     const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Playlist name is required' });
+    }
     const playlist = new Playlist({ userId: req.user.userId, name, songs: [] });
     await playlist.save();
     res.status(201).json(playlist);
   } catch (error) {
+    console.error('Error in /playlists:', error);
     res.status(500).json({ error: 'Failed to create playlist' });
   }
 });
@@ -112,6 +189,7 @@ router.get('/playlists', authMiddleware, async (req, res) => {
     const playlists = await Playlist.find({ userId: req.user.userId });
     res.json(playlists);
   } catch (error) {
+    console.error('Error in /playlists:', error);
     res.status(500).json({ error: 'Failed to fetch playlists' });
   }
 });
@@ -120,6 +198,9 @@ router.get('/playlists', authMiddleware, async (req, res) => {
 router.post('/playlists/:id/songs', authMiddleware, async (req, res) => {
   try {
     const { song } = req.body;
+    if (!song || !song.id) {
+      return res.status(400).json({ error: 'Song data is required' });
+    }
     const playlist = await Playlist.findOne({ _id: req.params.id, userId: req.user.userId });
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist not found' });
@@ -128,6 +209,7 @@ router.post('/playlists/:id/songs', authMiddleware, async (req, res) => {
     await playlist.save();
     res.json(playlist);
   } catch (error) {
+    console.error('Error in /playlists/:id/songs:', error);
     res.status(500).json({ error: 'Failed to add song to playlist' });
   }
 });
