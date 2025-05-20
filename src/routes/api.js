@@ -6,17 +6,11 @@ const Downloaded = require('../models/downloaded');
 const Playlist = require('../models/playlist');
 const axios = require('axios');
 
-<<<<<<< HEAD
 // Mô hình ánh xạ Spotify sang YouTube
 const Mapping = require('../models/mapping');
 
 // Tìm kiếm bài hát từ Spotify và ánh xạ sang YouTube
 router.get('/spotify/search', authMiddleware, async (req, res) => {
-=======
-
-// Tìm kiếm video YouTube
-router.get('/youtube/search', authMiddleware, async (req, res) => {
->>>>>>> 20f71d7ad6893441e866d75ee223bf9ca8cf55a3
   try {
     const { query } = req.query;
     if (!query) {
@@ -78,13 +72,8 @@ router.get('/youtube/search', authMiddleware, async (req, res) => {
 
     res.json(songs);
   } catch (error) {
-<<<<<<< HEAD
     console.error('Error in /spotify/search:', error);
     res.status(500).json({ error: 'Failed to search Spotify: ' + error.message });
-=======
-    console.error('YouTube Search Error:', error.response ? error.response.data : error.message);
-    res.status(500).json({ error: 'Failed to search YouTube: ' + error.message });
->>>>>>> 20f71d7ad6893441e866d75ee223bf9ca8cf55a3
   }
 });
 
