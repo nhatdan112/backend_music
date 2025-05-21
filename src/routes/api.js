@@ -58,7 +58,33 @@ router.get('/spotify/search', authMiddleware, async (req, res) => {
     });
   }
 });
+async function getSpotifyAccessToken() {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET');
+  }
 
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  console.log('Base64 Credentials:', credentials); // Debug
+
+  try {
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      'grant_type=client_credentials',
+      {
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      },
+    );
+    return response.data.access_token;
+  } catch (error) {
+    console.error('Spotify Token Error:', error.response?.data || error.message);
+    throw error;
+  }
+}
 // Thêm bài hát vào danh sách yêu thích
 router.post('/favorites', authMiddleware, async (req, res) => {
   try {
