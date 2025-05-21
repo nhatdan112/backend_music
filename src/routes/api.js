@@ -7,6 +7,48 @@ const Playlist = require('../models/playlist');
 const Mapping = require('../models/mapping');
 const axios = require('axios');
 
+// Hàm lấy Spotify access token (Client Credentials Flow)
+async function getSpotifyAccessToken() {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+
+  // Kiểm tra biến môi trường
+  if (!clientId || !clientSecret) {
+    console.error('Missing Spotify credentials:', {
+      hasClientId: !!clientId,
+      hasClientSecret: !!clientSecret,
+    });
+    throw new Error('Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET');
+  }
+
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  console.log('Base64 Credentials:', credentials); // Debug
+
+  try {
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      'grant_type=client_credentials',
+      {
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      },
+    );
+    console.log('Spotify Access Token:', response.data.access_token); // Debug
+    return response.data.access_token;
+  } catch (error) {
+    console.error('Spotify Token Error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
+    throw new Error(
+      error.response?.data?.error?.message || 'Failed to get Spotify access token'
+    );
+  }
+}
+
 // Spotify search endpoint
 router.get('/spotify/search', authMiddleware, async (req, res) => {
   try {
@@ -52,39 +94,17 @@ router.get('/spotify/search', authMiddleware, async (req, res) => {
 
     res.json(songs);
   } catch (error) {
-    console.error('Error in /spotify/search:', error.response?.data || error.message);
+    console.error('Error in /spotify/search:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
     res.status(error.response?.status || 500).json({
-      error: error.response?.data?.error?.message || 'Failed to search Spotify',
+      error: error.message || 'Failed to search Spotify',
     });
   }
 });
-async function getSpotifyAccessToken() {
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET');
-  }
 
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  console.log('Base64 Credentials:', credentials); // Debug
-
-  try {
-    const response = await axios.post(
-      'https://accounts.spotify.com/api/token',
-      'grant_type=client_credentials',
-      {
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      },
-    );
-    return response.data.access_token;
-  } catch (error) {
-    console.error('Spotify Token Error:', error.response?.data || error.message);
-    throw error;
-  }
-}
 // Thêm bài hát vào danh sách yêu thích
 router.post('/favorites', authMiddleware, async (req, res) => {
   try {
