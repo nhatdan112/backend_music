@@ -36,12 +36,11 @@ router.get('/spotify/search', authMiddleware, async (req, res) => {
     const songs = await Promise.all(
       tracks.map(async (track) => {
         const trackId = track.id;
-        // Tra cứu YouTube video ID từ cơ sở dữ liệu
         const mapping = await Mapping.findOne({ spotify_track_id: trackId });
         const youtubeVideoId = mapping ? mapping.youtube_video_id : '';
 
         return {
-          id: youtubeVideoId, // YouTube video ID (or empty if not found)
+          id: youtubeVideoId,
           title: track.name,
           artist: track.artists.map((a) => a.name).join(', '),
           album: track.album.name,
@@ -59,24 +58,6 @@ router.get('/spotify/search', authMiddleware, async (req, res) => {
     });
   }
 });
-
-// Lấy access token của Spotify (Client Credentials Flow)
-async function getSpotifyAccessToken() {
-  const credentials = Buffer.from(
-    `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
-  ).toString('base64');
-  const response = await axios.post(
-    'https://accounts.spotify.com/api/token',
-    'grant_type=client_credentials',
-    {
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    },
-  );
-  return response.data.access_token;
-}
 
 // Thêm bài hát vào danh sách yêu thích
 router.post('/favorites', authMiddleware, async (req, res) => {
