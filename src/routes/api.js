@@ -4,47 +4,10 @@ const authMiddleware = require('../middleware/auth');
 const Favorite = require('../models/favorite');
 const Downloaded = require('../models/downloaded');
 const Playlist = require('../models/playlist');
+const Mapping = require('../models/mapping');
 const axios = require('axios');
 
-// Mô hình ánh xạ Spotify sang YouTube
-const Mapping = require('../models/mapping');
-
-// Tìm kiếm video YouTube
-router.get('/youtube/search', authMiddleware, async (req, res) => {
-  try {
-    const { query, maxResults = 5 } = req.query;
-    if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
-    }
-
-    // Gọi YouTube Data API v3
-    const youtubeResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-      params: {
-        part: 'snippet',
-        q: query,
-        type: 'video',
-        maxResults: parseInt(maxResults),
-        key: process.env.YOUTUBE_API_KEY,
-      },
-    });
-
-    const videos = youtubeResponse.data.items.map((item) => ({
-      videoId: item.id.videoId,
-      title: item.snippet.title,
-      thumbnail: item.snippet.thumbnails.default.url,
-    }));
-
-    if (videos.length === 0) {
-      return res.status(404).json({ error: 'No videos found' });
-    }
-
-    res.json(videos);
-  } catch (error) {
-    console.error('Error in /youtube/search:', error);
-    res.status(500).json({ error: 'Failed to search YouTube: ' + error.message });
-  }
-});
-// Tìm kiếm bài hát từ Spotify và ánh xạ sang YouTube
+// Spotify search endpoint
 router.get('/spotify/search', authMiddleware, async (req, res) => {
   try {
     const { query } = req.query;
@@ -73,48 +36,35 @@ router.get('/spotify/search', authMiddleware, async (req, res) => {
     const songs = await Promise.all(
       tracks.map(async (track) => {
         const trackId = track.id;
-        const searchQuery = `${track.name} ${track.artists.map((a) => a.name).join(' ')}`;
-        let youtubeVideoId = await getYouTubeVideoId(trackId, searchQuery);
-
-        // Nếu không tìm thấy ánh xạ, lưu mới vào cơ sở dữ liệu
-        if (!youtubeVideoId) {
-          const youtubeResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-            params: {
-              part: 'snippet',
-              q: searchQuery,
-              type: 'video',
-              maxResults: 1,
-              key: process.env.YOUTUBE_API_KEY,
-            },
-          });
-          const video = youtubeResponse.data.items[0];
-          if (video) {
-            youtubeVideoId = video.id.videoId;
-            await new Mapping({ spotify_track_id: trackId, youtube_video_id: youtubeVideoId }).save();
-          }
-        }
+        // Tra cứu YouTube video ID từ cơ sở dữ liệu
+        const mapping = await Mapping.findOne({ spotify_track_id: trackId });
+        const youtubeVideoId = mapping ? mapping.youtube_video_id : '';
 
         return {
-          id: youtubeVideoId || '',
+          id: youtubeVideoId, // YouTube video ID (or empty if not found)
           title: track.name,
           artist: track.artists.map((a) => a.name).join(', '),
           album: track.album.name,
-          imageUrl: track.album.images[0]?.url || '',
-          thumbnail: track.album.images[2]?.url || '',
+          imageUrl: track.album.images[0]?.url || 'https://via.placeholder.com/150',
+          thumbnail: track.album.images[2]?.url || 'https://via.placeholder.com/64',
         };
       }),
     );
 
     res.json(songs);
   } catch (error) {
-    console.error('Error in /spotify/search:', error);
-    res.status(500).json({ error: 'Failed to search Spotify: ' + error.message });
+    console.error('Error in /spotify/search:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({
+      error: error.response?.data?.error?.message || 'Failed to search Spotify',
+    });
   }
 });
 
 // Lấy access token của Spotify (Client Credentials Flow)
 async function getSpotifyAccessToken() {
-  const credentials = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64');
+  const credentials = Buffer.from(
+    `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+  ).toString('base64');
   const response = await axios.post(
     'https://accounts.spotify.com/api/token',
     'grant_type=client_credentials',
@@ -126,12 +76,6 @@ async function getSpotifyAccessToken() {
     },
   );
   return response.data.access_token;
-}
-
-// Lấy YouTube video ID từ cơ sở dữ liệu ánh xạ
-async function getYouTubeVideoId(spotifyTrackId, query) {
-  const mapping = await Mapping.findOne({ spotify_track_id: spotifyTrackId });
-  return mapping ? mapping.youtube_video_id : null;
 }
 
 // Thêm bài hát vào danh sách yêu thích
@@ -191,7 +135,10 @@ router.get('/downloaded', authMiddleware, async (req, res) => {
 // Xóa bài hát khỏi danh sách yêu thích
 router.delete('/favorites/:id', authMiddleware, async (req, res) => {
   try {
-    const favorite = await Favorite.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+    const favorite = await Favorite.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.user.userId,
+    });
     if (!favorite) {
       return res.status(404).json({ error: 'Favorite not found' });
     }
@@ -236,7 +183,10 @@ router.post('/playlists/:id/songs', authMiddleware, async (req, res) => {
     if (!song || !song.id) {
       return res.status(400).json({ error: 'Song data is required' });
     }
-    const playlist = await Playlist.findOne({ _id: req.params.id, userId: req.user.userId });
+    const playlist = await Playlist.findOne({
+      _id: req.params.id,
+      userId: req.user.userId,
+    });
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist not found' });
     }
@@ -252,7 +202,10 @@ router.post('/playlists/:id/songs', authMiddleware, async (req, res) => {
 // Xóa playlist
 router.delete('/playlists/:id', authMiddleware, async (req, res) => {
   try {
-    const playlist = await Playlist.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+    const playlist = await Playlist.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.user.userId,
+    });
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist not found' });
     }
